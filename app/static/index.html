@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GuardrailMap</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; }
+    #map { height: 70vh; }
+    .panel { padding: 12px; display: grid; gap: 8px; }
+    input, button, textarea { padding: 8px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="panel">
+    <h3>Community updates</h3>
+    <input id="username" placeholder="username" />
+    <input id="email" placeholder="email" />
+    <input id="password" type="password" placeholder="password" />
+    <button onclick="registerUser()">Register</button>
+    <button onclick="loginUser()">Login</button>
+
+    <p><b>Add feature:</b> click map then submit. Broken points are red.</p>
+    <input id="featureType" value="guardrail_terminal" />
+    <label><input type="checkbox" id="isBroken" /> Broken</label>
+    <button onclick="submitFeature()">Submit Feature</button>
+
+    <input id="commentFeatureId" placeholder="feature id for comment" />
+    <textarea id="commentBody" placeholder="comment"></textarea>
+    <button onclick="submitComment()">Submit Comment</button>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([39.8283, -98.5795], 4);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let selectedPoint = null;
+    let token = localStorage.getItem('token') || '';
+
+    map.on('click', (e) => {
+      selectedPoint = e.latlng;
+      alert(`Selected point: ${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`);
+    });
+
+    async function api(path, options = {}) {
+      const headers = options.headers || {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (!headers['Content-Type'] && options.body && typeof options.body === 'string') {
+        headers['Content-Type'] = 'application/json';
+      }
+      const res = await fetch(path, { ...options, headers });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    async function refreshFeatures() {
+      const features = await api('/api/features');
+      features.forEach(f => {
+        const color = f.is_broken ? 'red' : 'blue';
+        L.circleMarker([f.latitude, f.longitude], { radius: 6, color }).addTo(map)
+          .bindPopup(`#${f.id} ${f.feature_type}<br>source=${f.source}<br>broken=${f.is_broken}`);
+      });
+    }
+
+    async function registerUser() {
+      await api('/api/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: document.getElementById('username').value,
+          email: document.getElementById('email').value,
+          password: document.getElementById('password').value
+        })
+      });
+      alert('Registered');
+    }
+
+    async function loginUser() {
+      const out = await api('/api/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: document.getElementById('username').value,
+          password: document.getElementById('password').value
+        })
+      });
+      token = out.access_token;
+      localStorage.setItem('token', token);
+      alert('Logged in');
+    }
+
+    async function submitFeature() {
+      if (!selectedPoint) return alert('Click map to choose location');
+      await api('/api/features', {
+        method: 'POST',
+        body: JSON.stringify({
+          latitude: selectedPoint.lat,
+          longitude: selectedPoint.lng,
+          feature_type: document.getElementById('featureType').value,
+          is_broken: document.getElementById('isBroken').checked,
+          source: 'user'
+        })
+      });
+      location.reload();
+    }
+
+    async function submitComment() {
+      const id = document.getElementById('commentFeatureId').value;
+      await api(`/api/features/${id}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ body: document.getElementById('commentBody').value })
+      });
+      alert('Comment submitted');
+    }
+
+    refreshFeatures();
+  </script>
+</body>
+</html>
